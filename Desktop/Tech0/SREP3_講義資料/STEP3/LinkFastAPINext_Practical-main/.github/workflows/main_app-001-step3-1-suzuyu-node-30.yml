@@ -1,0 +1,69 @@
+name: Build and deploy Next.js app to Azure Web App - app-001-step3-1-suzuyu-node-30
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Next.js app
+        env:
+          NEXT_PUBLIC_API_ENDPOINT: ${{ secrets.NEXT_PUBLIC_API_ENDPOINT }}
+        run: npm run build
+
+      - name: Copy deployment files
+        run: |
+          mkdir deploy
+          cp -r ./.next/standalone/* ./deploy
+          cp -r ./.next/static ./deploy/.next/static
+
+      - name: Zip deployment package
+        run: zip -r release.zip ./deploy
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-app
+          path: release.zip
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-app
+
+      - name: Unzip artifact
+        run: unzip release.zip
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'app-001-step3-1-suzuyu-node-30'
+          slot-name: 'Production'
+          package: ./deploy
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_431BED57D2AE4664AEC3BDFFA0E65003 }}
