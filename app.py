@@ -7,9 +7,9 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl import load_workbook
 import matplotlib
 import calendar
-import japanize_matplotlib  # 日本語フォント対応（Streamlit Cloudでも動く）
 
-# matplotlibの文字化け対策
+# ✅ 日本語フォント設定（Streamlit Cloud対応）
+matplotlib.rcParams['font.family'] = 'IPAexGothic'  # Cloud環境ではこれが有効なことが多い
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 st.title("📊 店舗別売上分析アプリ")
