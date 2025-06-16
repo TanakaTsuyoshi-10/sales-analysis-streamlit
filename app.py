@@ -9,7 +9,7 @@ import matplotlib
 import calendar
 
 # ✅ 日本語フォント設定（Streamlit Cloud対応）
-matplotlib.rcParams['font.family'] = 'IPAexGothic'  # Cloud環境ではこれが有効なことが多い
+matplotlib.rcParams['font.family'] = 'Noto Sans CJK JP'  # Cloud環境ではこれが有効なことが多い
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 st.title("📊 店舗別売上分析アプリ")
