@@ -7,9 +7,10 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl import load_workbook
 import matplotlib
 import calendar
+import japanize_matplotlib  # 日本語フォント対応（Streamlit Cloudでも動く）
 
-# ✅ macOSで日本語表示するためのフォント設定
-matplotlib.rcParams['font.family'] = 'Hiragino Mincho ProN'
+# matplotlibの文字化け対策
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 st.title("📊 店舗別売上分析アプリ")
 
