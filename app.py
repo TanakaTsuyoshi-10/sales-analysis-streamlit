@@ -8,7 +8,7 @@ import traceback
 # 例外処理でアプリ起動エラーを表示
 try:
     # フォント設定（Streamlit Cloudでも対応しやすい）
-    matplotlib.rcParams['font.family'] = ['IPAexGothic', 'Noto Sans CJK JP', 'sans-serif']
+    matplotlib.rcParams['font.family'] = ['sans-serif']
     matplotlib.rcParams['axes.unicode_minus'] = False
 
     st.set_page_config(page_title="店舗別売上分析", layout="wide")
