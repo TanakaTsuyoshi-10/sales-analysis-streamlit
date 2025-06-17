@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 
 # 日本語フォント設定（Streamlit Cloud 対応）
-matplotlib.rcParams['font.family'] = ['IPAexGothic', 'Noto Sans CJK JP', 'sans-serif']
+matplotlib.rcParams['font.family'] = ['IPAexGothic']
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 st.set_page_config(page_title="店舗別売上分析", layout="wide")
@@ -135,4 +135,3 @@ if uploaded_file:
             file_name="売上分析レポート.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
