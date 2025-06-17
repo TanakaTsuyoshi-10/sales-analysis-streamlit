@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import matplotlib
+import matplotlib.pyplot as plt
 from io import BytesIO
 
-# 日本語フォント設定
-matplotlib.rcParams['font.family'] = 'Hiragino Maru Gothic Pro'
+# フォント設定（Streamlit Cloudでの互換性を考慮）
+matplotlib.rcParams['font.family'] = ['IPAexGothic', 'Noto Sans CJK JP', 'sans-serif']
 matplotlib.rcParams['axes.unicode_minus'] = False
 
+st.set_page_config(page_title="店舗別売上分析", layout="wide")
 st.title("📊 店舗別売上分析アプリ")
 
 uploaded_file = st.file_uploader(
@@ -14,15 +16,13 @@ uploaded_file = st.file_uploader(
     type="csv"
 )
 
-if uploaded_file is not None:
+if uploaded_file:
     try:
         df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
-        st.success("✅ ファイル読み込み成功")
     except Exception as e:
-        st.error(f"ファイルの読み込みに失敗しました: {e}")
+        st.error(f"CSVの読み込みに失敗しました: {e}")
         st.stop()
 
-    # 店舗番号→店舗名マッピング
     store_map = {
         "2": "隼人", "3": "鷹尾", "4": "中町", "5": "三股", "7": "宮崎", "8": "熊本",
         "14": "鹿屋", "15": "吉野", "16": "花山手東", "17": "大根田", "18": "中山",
@@ -34,13 +34,11 @@ if uploaded_file is not None:
         "花山手東", "大根田", "中山", "土井", "空港東", "有田", "春日", "長嶺"
     ]
 
-    # 前処理
     df["販売日"] = df["販売日時"].str.extract(r"(\d{4}年\d{2}月\d{2}日)")
     df["販売時刻"] = df["販売日時"].str.extract(r"(\d{2}:\d{2})")
     df["販売時"] = df["販売時刻"].str[:2]
     df["店舗番号"] = df["レシート番号"].str.extract(r"No\.(\d+)-")[0]
     df["店舗名"] = df["店舗番号"].map(store_map).fillna("不明")
-
     df["販売単価"] = pd.to_numeric(df["販売単価"].astype(str).str.replace("@", "").str.replace(",", ""), errors="coerce")
     df["数量"] = pd.to_numeric(df["数量"], errors="coerce")
     df["小計"] = pd.to_numeric(df["小計"], errors="coerce")
@@ -54,32 +52,30 @@ if uploaded_file is not None:
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
     df["店舗名"] = pd.Categorical(df["店舗名"], categories=store_order, ordered=True)
 
-    # 餃子商品のみ抽出
     target_products = [
         "ぎょうざ２０個", "ぎょうざ３０個", "ぎょうざ４０個", "ぎょうざ５０個",
         "生姜入ぎょうざ３０個", "宅配ぎょうざ40個", "宅配ぎょうざ50個"
     ]
     df_gyoza = df[df["商品名"].isin(target_products)].copy()
 
-    # レシート単位で客数・売上集計
-    receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"], observed=False).agg(
+    receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
         売上金額=("小計", "sum")
     ).reset_index()
 
-    # 餃子販売個数集計
-    gyoza_counts = df_gyoza.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"], observed=False).agg(
+    gyoza_counts = df_gyoza.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         販売個数=("数量", "sum")
     ).reset_index()
 
-    # 合体
-    receipt_summary = pd.merge(receipt_summary, gyoza_counts,
-                               on=["販売日", "年月", "販売時", "店舗名", "レシート番号"], how="left")
+    receipt_summary = pd.merge(
+        receipt_summary, gyoza_counts,
+        on=["販売日", "年月", "販売時", "店舗名", "レシート番号"], how="left"
+    )
     receipt_summary["販売個数"] = receipt_summary["販売個数"].fillna(0)
     receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"].replace(0, 1)
 
     def summarize(data, group_keys):
-        summary = data.groupby(group_keys, observed=False).agg(
+        summary = data.groupby(group_keys).agg(
             売上高=("売上金額", "sum"),
             客数=("客数", "sum"),
             販売個数=("販売個数", "sum")
@@ -97,7 +93,7 @@ if uploaded_file is not None:
         monthly = summarize(receipt_summary, ["年月", "店舗名"])
         hourly = summarize(receipt_summary, ["年月", "販売時", "店舗名"])
 
-        product_summary = df_gyoza.groupby(["店舗名", "商品名"], observed=False).agg(
+        product_summary = df_gyoza.groupby(["店舗名", "商品名"]).agg(
             販売個数=("数量", "sum")
         ).reset_index()
         product_summary["店舗名"] = pd.Categorical(product_summary["店舗名"], categories=store_order, ordered=True)
@@ -109,7 +105,7 @@ if uploaded_file is not None:
             売上金額=("小計", "sum")
         ).sort_values("売上金額", ascending=False).head(10)
 
-        weekday_summary = df_gyoza.groupby(["店舗名", "曜日名"], observed=False).agg(
+        weekday_summary = df_gyoza.groupby(["店舗名", "曜日名"]).agg(
             販売個数=("数量", "sum"),
             売上金額=("小計", "sum")
         ).reset_index()
@@ -118,7 +114,6 @@ if uploaded_file is not None:
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
         weekday_pivot = weekday_pivot.loc[weekday_pivot.index.intersection(store_order)]
 
-        # Excel書き出し
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
@@ -130,8 +125,8 @@ if uploaded_file is not None:
 
         output.seek(0)
         st.download_button(
-            "⬇️ 売上分析レポートをダウンロード",
+            "⬇️ 売上分析レポート（軽量版）をダウンロード",
             data=output.getvalue(),
-            file_name="売上分析レポート.xlsx",
+            file_name="売上分析レポート_軽量版.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
