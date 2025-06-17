@@ -1,52 +1,32 @@
 import streamlit as st
 import pandas as pd
-import matplotlib
 import matplotlib.pyplot as plt
+import seaborn as sns
 from io import BytesIO
-import traceback
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl import load_workbook
+import matplotlib
+import calendar
+import japanize_matplotlib  # 日本語フォント対応（Streamlit Cloudでも動く）
 
-# ✅ ページ設定
-st.set_page_config(page_title="店舗別売上分析", layout="wide")
+# matplotlibの文字化け対策
+matplotlib.rcParams['axes.unicode_minus'] = False
 
-try:
-    # フォント設定（Streamlit Cloud対応）
-    matplotlib.rcParams['font.family'] = ['sans-serif']
-    matplotlib.rcParams['axes.unicode_minus'] = False
+st.title("📊 店舗別売上分析アプリ")
 
-    st.title("📊 店舗別売上分析アプリ")
+uploaded_file = st.file_uploader(
+    "📂 CSVファイルをアップロードしてください（Shift-JIS形式）",
+    type="csv"
+)
 
-    # 📝 説明文表示
-    st.markdown("""
-    ### 📌 使い方
-    1. 下記から **Shift-JIS形式のCSVファイル（2行ヘッダー）** をアップロードしてください。
-    2. ボタンを押すと、Excelレポートがダウンロードできます。
-    """)
-
-    uploaded_file = st.file_uploader(
-        "📂 CSVファイルをアップロードしてください",
-        type="csv"
-    )
-
-    # ✅ ファイル未選択時に案内表示
-    if not uploaded_file:
-        st.info("👆 上のボタンからCSVファイルをアップロードしてください。")
-        st.stop()
-
-    try:
-        df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
-    except Exception as e:
-        st.error(f"CSVの読み込みに失敗しました: {e}")
-        st.stop()
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
 
     store_map = {
         "2": "隼人", "3": "鷹尾", "4": "中町", "5": "三股", "7": "宮崎", "8": "熊本",
         "14": "鹿屋", "15": "吉野", "16": "花山手東", "17": "大根田", "18": "中山",
         "21": "土井", "22": "空港東", "23": "有田", "24": "春日", "25": "長嶺"
     }
-    store_order = [
-        "三股", "鷹尾", "中町", "宮崎", "隼人", "熊本", "鹿屋", "吉野",
-        "花山手東", "大根田", "中山", "土井", "空港東", "有田", "春日", "長嶺"
-    ]
 
     df["販売日"] = df["販売日時"].str.extract(r"(\d{4}年\d{2}月\d{2}日)")
     df["販売時刻"] = df["販売日時"].str.extract(r"(\d{2}:\d{2})")
@@ -64,69 +44,75 @@ try:
     df["曜日"] = df["販売日"].dt.dayofweek
     weekday_jp = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
-    df["店舗名"] = pd.Categorical(df["店舗名"], categories=store_order, ordered=True)
 
-    target_products = [
-        "ぎょうざ２０個", "ぎょうざ３０個", "ぎょうざ４０個", "ぎょうざ５０個",
-        "生姜入ぎょうざ３０個", "宅配ぎょうざ40個", "宅配ぎょうざ50個"
-    ]
-    df_gyoza = df[df["商品名"].isin(target_products)].copy()
-
-    receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"], observed=False).agg(
+    receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
+        販売個数=("数量", "sum"),
         売上金額=("小計", "sum")
     ).reset_index()
-
-    gyoza_counts = df_gyoza.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"], observed=False).agg(
-        販売個数=("数量", "sum")
-    ).reset_index()
-
-    receipt_summary = pd.merge(
-        receipt_summary, gyoza_counts,
-        on=["販売日", "年月", "販売時", "店舗名", "レシート番号"], how="left"
-    )
-    receipt_summary["販売個数"] = receipt_summary["販売個数"].fillna(0)
-    receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"].replace(0, 1)
+    receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"]
 
     def summarize(data, group_keys):
-        summary = data.groupby(group_keys, observed=False).agg(
+        summary = data.groupby(group_keys).agg(
             売上高=("売上金額", "sum"),
             客数=("客数", "sum"),
             販売個数=("販売個数", "sum")
         ).reset_index()
-        summary["1人あたり単価"] = summary["売上高"] / summary["客数"].replace(0, 1)
-        if "店舗名" in group_keys:
-            summary["店舗名"] = pd.Categorical(summary["店舗名"], categories=store_order, ordered=True)
-            summary = summary.sort_values("店舗名")
+        summary["1人あたり単価"] = summary["売上高"] / summary["客数"]
         return summary
 
-    if st.button("📦 Excel集計（軽量版）"):
+    if st.button("📦 Excel集計"):
         daily = summarize(receipt_summary, ["販売日", "店舗名"])
         daily["販売日"] = daily["販売日"].dt.strftime("%Y/%-m/%-d")
 
         monthly = summarize(receipt_summary, ["年月", "店舗名"])
         hourly = summarize(receipt_summary, ["年月", "販売時", "店舗名"])
 
-        product_summary = df_gyoza.groupby(["店舗名", "商品名"], observed=False).agg(
-            販売個数=("数量", "sum")
-        ).reset_index()
-        product_summary["店舗名"] = pd.Categorical(product_summary["店舗名"], categories=store_order, ordered=True)
+        product_summary = df.groupby(["店舗名", "商品名"]).agg(販売個数=("数量", "sum")).reset_index()
         product_pivot = product_summary.pivot(index="店舗名", columns="商品名", values="販売個数").fillna(0)
-        product_pivot = product_pivot.loc[product_pivot.index.intersection(store_order)]
 
-        ranking = df_gyoza.groupby("商品名", observed=False).agg(
+        ranking = df.groupby("商品名").agg(
             販売個数=("数量", "sum"),
             売上金額=("小計", "sum")
         ).sort_values("売上金額", ascending=False).head(10)
 
-        weekday_summary = df_gyoza.groupby(["店舗名", "曜日名"], observed=False).agg(
+        weekday_summary = df.groupby(["店舗名", "曜日名"]).agg(
             販売個数=("数量", "sum"),
             売上金額=("小計", "sum")
         ).reset_index()
-        weekday_summary["店舗名"] = pd.Categorical(weekday_summary["店舗名"], categories=store_order, ordered=True)
         weekday_pivot = weekday_summary.pivot(index="店舗名", columns="曜日名").fillna(0)
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
-        weekday_pivot = weekday_pivot.loc[weekday_pivot.index.intersection(store_order)]
+
+        def create_chart(buf, draw_func):
+            plt.figure(figsize=(10, 6))
+            draw_func()
+            plt.tight_layout()
+            plt.savefig(buf, format="png")
+            plt.close()
+            buf.seek(0)
+
+        heatmap_buf = BytesIO()
+        pivot_heatmap = hourly.pivot_table(index="店舗名", columns="販売時", values="客数", aggfunc="sum")
+        if not pivot_heatmap.empty:
+            create_chart(heatmap_buf, lambda: sns.heatmap(pivot_heatmap.fillna(0), annot=True, fmt=".0f", cmap="YlGnBu"))
+
+        linechart_buf = BytesIO()
+        def draw_lines():
+            for store in hourly["店舗名"].unique():
+                tmp = hourly[hourly["店舗名"] == store]
+                line = tmp.groupby("販売時")["客数"].sum().sort_index()
+                plt.plot(line.index, line.values, label=store)
+            plt.title("時間帯別 客数推移（店舗別）")
+            plt.xlabel("時間帯")
+            plt.ylabel("客数")
+            plt.legend(fontsize=8)
+        create_chart(linechart_buf, draw_lines)
+
+        ranking_buf = BytesIO()
+        create_chart(ranking_buf, lambda: sns.barplot(data=ranking.reset_index(), x="売上金額", y="商品名", palette="Blues_d"))
+
+        weekday_buf = BytesIO()
+        create_chart(weekday_buf, lambda: sns.heatmap(df.pivot_table(index="店舗名", columns="曜日名", values="数量", aggfunc="sum")[weekday_jp].fillna(0), annot=True, fmt=".0f", cmap="OrRd"))
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -137,14 +123,16 @@ try:
             ranking.to_excel(writer, index=True, sheet_name="商品ランキング")
             weekday_pivot.to_excel(writer, sheet_name="曜日別_販売数")
 
-        output.seek(0)
-        st.download_button(
-            "⬇️ 売上分析レポートをダウンロード",
-            data=output.getvalue(),
-            file_name="売上分析レポート.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            workbook = writer.book
+            sheet = workbook.create_sheet("分析指標")
+            if heatmap_buf.getbuffer().nbytes > 0:
+                sheet.add_image(XLImage(heatmap_buf), "A1")
+            if linechart_buf.getbuffer().nbytes > 0:
+                sheet.add_image(XLImage(linechart_buf), "A30")
+            if ranking_buf.getbuffer().nbytes > 0:
+                sheet.add_image(XLImage(ranking_buf), "L1")
+            if weekday_buf.getbuffer().nbytes > 0:
+                sheet.add_image(XLImage(weekday_buf), "L30")
 
-except Exception:
-    st.error("アプリ起動中にエラーが発生しました。")
-    st.text(traceback.format_exc())
+        output.seek(0)
+        st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
