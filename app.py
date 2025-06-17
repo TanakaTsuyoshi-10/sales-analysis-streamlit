@@ -5,12 +5,12 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import traceback
 
-# 最初にページ設定（try ブロックの外に置くと安全）
+# ✅ ページ設定は最初に行う
 st.set_page_config(page_title="店舗別売上分析", layout="wide")
 
 try:
-    # フォント設定（クラウド環境でも動作するよう簡易設定）
-    matplotlib.rcParams['font.family'] = ['IPAexGothic', 'Noto Sans CJK JP', 'sans-serif']
+    # フォント設定（Streamlit Cloud向けに汎用フォントを指定）
+    matplotlib.rcParams['font.family'] = ['sans-serif']
     matplotlib.rcParams['axes.unicode_minus'] = False
 
     st.title("📊 店舗別売上分析アプリ")
@@ -20,18 +20,16 @@ try:
         type="csv"
     )
 
-    if uploaded_file is None:
-        st.info("CSVファイルがアップロードされていません。")
+    # ✅ ファイル未選択の場合は終了
+    if not uploaded_file:
         st.stop()
 
-    # CSV読み込み
     try:
         df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
     except Exception as e:
         st.error(f"CSVの読み込みに失敗しました: {e}")
         st.stop()
 
-    # 店舗情報
     store_map = {
         "2": "隼人", "3": "鷹尾", "4": "中町", "5": "三股", "7": "宮崎", "8": "熊本",
         "14": "鹿屋", "15": "吉野", "16": "花山手東", "17": "大根田", "18": "中山",
@@ -42,7 +40,6 @@ try:
         "花山手東", "大根田", "中山", "土井", "空港東", "有田", "春日", "長嶺"
     ]
 
-    # 前処理
     df["販売日"] = df["販売日時"].str.extract(r"(\d{4}年\d{2}月\d{2}日)")
     df["販売時刻"] = df["販売日時"].str.extract(r"(\d{2}:\d{2})")
     df["販売時"] = df["販売時刻"].str[:2]
@@ -52,6 +49,7 @@ try:
     df["数量"] = pd.to_numeric(df["数量"], errors="coerce")
     df["小計"] = pd.to_numeric(df["小計"], errors="coerce")
     df = df[df["数量"].notnull() & df["小計"].notnull() & df["販売日"].notnull()]
+
     df["年月"] = df["販売日"].str.extract(r"(\d{4}年\d{2}月)")
     df["販売日"] = pd.to_datetime(df["販売日"].str.replace("年", "-").str.replace("月", "-").str.replace("日", ""), errors="coerce")
     df = df[df["販売日"].notnull()]
@@ -60,14 +58,12 @@ try:
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
     df["店舗名"] = pd.Categorical(df["店舗名"], categories=store_order, ordered=True)
 
-    # 対象商品
     target_products = [
         "ぎょうざ２０個", "ぎょうざ３０個", "ぎょうざ４０個", "ぎょうざ５０個",
         "生姜入ぎょうざ３０個", "宅配ぎょうざ40個", "宅配ぎょうざ50個"
     ]
     df_gyoza = df[df["商品名"].isin(target_products)].copy()
 
-    # レシート単位の集計
     receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"], observed=False).agg(
         客数=("レシート番号", "nunique"),
         売上金額=("小計", "sum")
@@ -96,7 +92,6 @@ try:
             summary = summary.sort_values("店舗名")
         return summary
 
-    # ボタンでExcel出力
     if st.button("📦 Excel集計（軽量版）"):
         daily = summarize(receipt_summary, ["販売日", "店舗名"])
         daily["販売日"] = daily["販売日"].dt.strftime("%Y/%-m/%-d")
@@ -145,3 +140,4 @@ try:
 except Exception:
     st.error("アプリ起動中にエラーが発生しました。")
     st.text(traceback.format_exc())
+    
