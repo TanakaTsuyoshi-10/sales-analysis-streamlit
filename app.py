@@ -1,22 +1,23 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from io import BytesIO
 import matplotlib
 
 matplotlib.rcParams['font.family'] = 'Hiragino Maru Gothic Pro'
 matplotlib.rcParams['axes.unicode_minus'] = False
 
-st.title("📊 店舗別売上分析アプリ（軽量版）")
+st.title("📊 店舗別売上分析アプリ")
 
 uploaded_file = st.file_uploader(
-    "📂 CSVファイルをアップロードしてください（Shift-JIS形式）",
+    "📂 CSVファイルをアップロードしてください（Shift-JIS形式、2行ヘッダー）",
     type="csv"
 )
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
+    except Exception as e:
+        st.error(f"ファイルの読み込みに失敗しました: {e}")
+        st.stop()
 
     store_map = {
         "2": "隼人", "3": "鷹尾", "4": "中町", "5": "三股", "7": "宮崎", "8": "熊本",
@@ -47,12 +48,14 @@ if uploaded_file:
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
     df["店舗名"] = pd.Categorical(df["店舗名"], categories=store_order, ordered=True)
 
+    # 餃子商品のみ抽出
     target_products = [
         "ぎょうざ２０個", "ぎょうざ３０個", "ぎょうざ４０個", "ぎょうざ５０個",
         "生姜入ぎょうざ３０個", "宅配ぎょうざ40個", "宅配ぎょうざ50個"
     ]
     df_gyoza = df[df["商品名"].isin(target_products)].copy()
 
+    # レシート単位集計
     receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
         売上金額=("小計", "sum")
@@ -88,7 +91,7 @@ if uploaded_file:
         product_summary = df_gyoza.groupby(["店舗名", "商品名"]).agg(販売個数=("数量", "sum")).reset_index()
         product_summary["店舗名"] = pd.Categorical(product_summary["店舗名"], categories=store_order, ordered=True)
         product_pivot = product_summary.pivot(index="店舗名", columns="商品名", values="販売個数").fillna(0)
-        product_pivot = product_pivot.loc[store_order]
+        product_pivot = product_pivot.loc[product_pivot.index.intersection(store_order)]
 
         ranking = df_gyoza.groupby("商品名").agg(
             販売個数=("数量", "sum"),
@@ -102,8 +105,9 @@ if uploaded_file:
         weekday_summary["店舗名"] = pd.Categorical(weekday_summary["店舗名"], categories=store_order, ordered=True)
         weekday_pivot = weekday_summary.pivot(index="店舗名", columns="曜日名").fillna(0)
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
-        weekday_pivot = weekday_pivot.loc[store_order]
+        weekday_pivot = weekday_pivot.loc[weekday_pivot.index.intersection(store_order)]
 
+        from io import BytesIO
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
@@ -115,7 +119,7 @@ if uploaded_file:
 
         output.seek(0)
         st.download_button(
-            "⬇️ 分析レポートをダウンロード（軽量版）",
+            "⬇️ 売上分析レポート（軽量版）をダウンロード",
             data=output.getvalue(),
             file_name="売上分析レポート_軽量版.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
