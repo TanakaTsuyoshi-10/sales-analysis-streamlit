@@ -3,13 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
-from openpyxl.drawing.image import Image as XLImage
 import matplotlib
 
 matplotlib.rcParams['font.family'] = 'Hiragino Maru Gothic Pro'
 matplotlib.rcParams['axes.unicode_minus'] = False
 
-st.title("📊 店舗別売上分析アプリ")
+st.title("📊 店舗別売上分析アプリ（軽量版）")
 
 uploaded_file = st.file_uploader(
     "📂 CSVファイルをアップロードしてください（Shift-JIS形式）",
@@ -46,7 +45,6 @@ if uploaded_file:
     df["曜日"] = df["販売日"].dt.dayofweek
     weekday_jp = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
-
     df["店舗名"] = pd.Categorical(df["店舗名"], categories=store_order, ordered=True)
 
     target_products = [
@@ -80,7 +78,7 @@ if uploaded_file:
             summary = summary.sort_values("店舗名")
         return summary
 
-    if st.button("📦 Excel集計"):
+    if st.button("📦 Excel集計（軽量版）"):
         daily = summarize(receipt_summary, ["販売日", "店舗名"])
         daily["販売日"] = daily["販売日"].dt.strftime("%Y/%-m/%-d")
 
@@ -90,7 +88,7 @@ if uploaded_file:
         product_summary = df_gyoza.groupby(["店舗名", "商品名"]).agg(販売個数=("数量", "sum")).reset_index()
         product_summary["店舗名"] = pd.Categorical(product_summary["店舗名"], categories=store_order, ordered=True)
         product_pivot = product_summary.pivot(index="店舗名", columns="商品名", values="販売個数").fillna(0)
-        product_pivot = product_pivot.loc[store_order]  # 並び順強制
+        product_pivot = product_pivot.loc[store_order]
 
         ranking = df_gyoza.groupby("商品名").agg(
             販売個数=("数量", "sum"),
@@ -106,42 +104,6 @@ if uploaded_file:
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
         weekday_pivot = weekday_pivot.loc[store_order]
 
-        def create_chart(buf, draw_func):
-            plt.figure(figsize=(10, 6))
-            draw_func()
-            plt.tight_layout()
-            plt.savefig(buf, format="png")
-            plt.close()
-            buf.seek(0)
-
-        heatmap_buf = BytesIO()
-        pivot_heatmap = hourly.pivot_table(index="店舗名", columns="販売時", values="客数", aggfunc="sum")
-        pivot_heatmap = pivot_heatmap.reindex(store_order)
-        if not pivot_heatmap.empty:
-            create_chart(heatmap_buf, lambda: sns.heatmap(pivot_heatmap.fillna(0), annot=True, fmt=".0f", cmap="YlGnBu"))
-
-        linechart_buf = BytesIO()
-        def draw_lines():
-            for store in store_order:
-                tmp = hourly[hourly["店舗名"] == store]
-                if not tmp.empty:
-                    line = tmp.groupby("販売時")["客数"].sum().sort_index()
-                    plt.plot(line.index, line.values, label=store)
-            plt.title("時間帯別 客数推移（店舗別）")
-            plt.xlabel("時間帯")
-            plt.ylabel("客数")
-            plt.legend(fontsize=8)
-        create_chart(linechart_buf, draw_lines)
-
-        ranking_buf = BytesIO()
-        create_chart(ranking_buf, lambda: sns.barplot(data=ranking.reset_index(), x="売上金額", y="商品名", palette="Blues_d"))
-
-        weekday_buf = BytesIO()
-        create_chart(weekday_buf, lambda: sns.heatmap(
-            df_gyoza.pivot_table(index="店舗名", columns="曜日名", values="数量", aggfunc="sum")
-            .reindex(store_order)[weekday_jp].fillna(0), annot=True, fmt=".0f", cmap="OrRd"
-        ))
-
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
@@ -151,21 +113,10 @@ if uploaded_file:
             ranking.to_excel(writer, index=True, sheet_name="商品ランキング")
             weekday_pivot.to_excel(writer, sheet_name="曜日別_販売数")
 
-            workbook = writer.book
-            sheet = workbook.create_sheet("分析指標")
-            if heatmap_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(heatmap_buf), "A1")
-            if linechart_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(linechart_buf), "A30")
-            if ranking_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(ranking_buf), "L1")
-            if weekday_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(weekday_buf), "L30")
-
         output.seek(0)
         st.download_button(
-            "⬇️ 分析レポートをダウンロード",
+            "⬇️ 分析レポートをダウンロード（軽量版）",
             data=output.getvalue(),
-            file_name="売上分析レポート.xlsx",
+            file_name="売上分析レポート_軽量版.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
