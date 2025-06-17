@@ -1,4 +1,6 @@
-streamlit==1.45.1
-pandas==2.3.0
-openpyxl==3.1.5
-matplotlib==3.10.3
+streamlit
+pandas
+matplotlib
+seaborn
+openpyxl
+japanize-matplotlib
