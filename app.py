@@ -5,23 +5,31 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import traceback
 
-# ✅ ページ設定は最初に行う
+# ✅ ページ設定
 st.set_page_config(page_title="店舗別売上分析", layout="wide")
 
 try:
-    # フォント設定（Streamlit Cloud向けに汎用フォントを指定）
+    # フォント設定（Streamlit Cloud対応）
     matplotlib.rcParams['font.family'] = ['sans-serif']
     matplotlib.rcParams['axes.unicode_minus'] = False
 
     st.title("📊 店舗別売上分析アプリ")
 
+    # 📝 説明文表示
+    st.markdown("""
+    ### 📌 使い方
+    1. 下記から **Shift-JIS形式のCSVファイル（2行ヘッダー）** をアップロードしてください。
+    2. ボタンを押すと、Excelレポートがダウンロードできます。
+    """)
+
     uploaded_file = st.file_uploader(
-        "📂 CSVファイルをアップロードしてください（Shift-JIS形式、2行ヘッダー）",
+        "📂 CSVファイルをアップロードしてください",
         type="csv"
     )
 
-    # ✅ ファイル未選択の場合は終了
+    # ✅ ファイル未選択時に案内表示
     if not uploaded_file:
+        st.info("👆 上のボタンからCSVファイルをアップロードしてください。")
         st.stop()
 
     try:
@@ -140,4 +148,3 @@ try:
 except Exception:
     st.error("アプリ起動中にエラーが発生しました。")
     st.text(traceback.format_exc())
-    
