@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib
+from io import BytesIO
 
 matplotlib.rcParams['font.family'] = 'Hiragino Maru Gothic Pro'
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -15,6 +16,9 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file, encoding="cp932", skiprows=2)
+        if df.empty:
+            st.warning("⚠️ アップロードされたCSVファイルにデータがありません。")
+            st.stop()
     except Exception as e:
         st.error(f"ファイルの読み込みに失敗しました: {e}")
         st.stop()
@@ -43,19 +47,24 @@ if uploaded_file is not None:
     df["年月"] = df["販売日"].str.extract(r"(\d{4}年\d{2}月)")
     df["販売日"] = pd.to_datetime(df["販売日"].str.replace("年", "-").str.replace("月", "-").str.replace("日", ""), errors="coerce")
     df = df[df["販売日"].notnull()]
+    if df.empty:
+        st.warning("⚠️ 有効な販売日データがありません。")
+        st.stop()
+
     df["曜日"] = df["販売日"].dt.dayofweek
     weekday_jp = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
     df["店舗名"] = pd.Categorical(df["店舗名"], categories=store_order, ordered=True)
 
-    # 餃子商品のみ抽出
     target_products = [
         "ぎょうざ２０個", "ぎょうざ３０個", "ぎょうざ４０個", "ぎょうざ５０個",
         "生姜入ぎょうざ３０個", "宅配ぎょうざ40個", "宅配ぎょうざ50個"
     ]
     df_gyoza = df[df["商品名"].isin(target_products)].copy()
+    if df_gyoza.empty:
+        st.warning("⚠️ 餃子商品が含まれていません。")
+        st.stop()
 
-    # レシート単位集計
     receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
         売上金額=("小計", "sum")
@@ -65,9 +74,17 @@ if uploaded_file is not None:
         販売個数=("数量", "sum")
     ).reset_index()
 
-    receipt_summary = pd.merge(receipt_summary, gyoza_counts, on=["販売日", "年月", "販売時", "店舗名", "レシート番号"], how="left")
+    receipt_summary = pd.merge(
+        receipt_summary, gyoza_counts,
+        on=["販売日", "年月", "販売時", "店舗名", "レシート番号"],
+        how="left"
+    )
     receipt_summary["販売個数"] = receipt_summary["販売個数"].fillna(0)
     receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"].replace(0, 1)
+
+    if receipt_summary.empty:
+        st.warning("⚠️ 集計対象のレシートデータがありません。")
+        st.stop()
 
     def summarize(data, group_keys):
         summary = data.groupby(group_keys).agg(
@@ -107,7 +124,6 @@ if uploaded_file is not None:
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
         weekday_pivot = weekday_pivot.loc[weekday_pivot.index.intersection(store_order)]
 
-        from io import BytesIO
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
