@@ -9,13 +9,7 @@ from openpyxl import load_workbook
 import matplotlib
 import calendar
 
-# ✅ フォント設定（汎用的な日本語フォントに変更）
-
-try:
-    matplotlib.rcParams['font.family'] = 'Noto Sans CJK JP'
-except:
-    matplotlib.rcParams['font.family'] = 'sans-serif'
-
+matplotlib.rcParams['font.family'] = ['Hiragino Maru Gothic Pro']
 
 st.title("📊 店舗別売上分析アプリ")
 
@@ -49,12 +43,6 @@ if uploaded_file:
     df["曜日"] = df["販売日"].dt.dayofweek
     weekday_jp = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
-    # df_timeを使って店舗・時間帯・曜日別分析
-    df_time = receipt_summary.copy()
-    df_time["販売時"] = df_time["販売時"].astype(int)
-    df_time["日時"] = pd.to_datetime(df_time["年月"].str.replace("年", "-").str.replace("月", "-01 ") + df_time["販売時"].astype(str) + ":00", errors="coerce")
-    df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
-    df_time["時間帯"] = df_time["日時"].dt.hour
 
     receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
@@ -74,7 +62,7 @@ if uploaded_file:
 
     if st.button("📦 Excel集計"):
         daily = summarize(receipt_summary, ["販売日", "店舗名"])
-        daily["販売日"] = daily["販売日"].dt.strftime("%Y/%-m/%-d")
+        daily["販売日"] = pd.to_datetime(daily["販売日"]).dt.strftime("%Y/%-m/%-d")
         monthly = summarize(receipt_summary, ["年月", "店舗名"])
         hourly = summarize(receipt_summary, ["年月", "販売時", "店舗名"])
 
@@ -86,30 +74,41 @@ if uploaded_file:
         weekday_pivot = weekday_summary.pivot(index="店舗名", columns="曜日名").fillna(0)
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
 
+        # df_time & weekday_store_time
+        df_time = receipt_summary.copy()
+        df_time["販売時"] = df_time["販売時"].astype(int)
+        df_time["日時"] = pd.to_datetime(df_time["年月"].str.replace("年", "-").str.replace("月", "-01 ") + df_time["販売時"].astype(str) + ":00", errors="coerce")
+        df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
+        df_time["時間帯"] = df_time["日時"].dt.hour
+
+        weekday_store_time = (
+            df_time.groupby(["曜日", "店舗名", "時間帯"])["客数"]
+            .sum()
+            .reset_index()
+            .pivot_table(index=["曜日", "店舗名"], columns="時間帯", values="客数")
+            .fillna(0)
+            .astype(int)
+        )
+
         output = BytesIO()
-        
-    # 曜日×店舗別×時間帯ピボットテーブルを作成
-    weekday_store_time = (
-        df_time.groupby(["曜日", "店舗名", "時間帯"])["客数"]
-        .sum()
-        .reset_index()
-        .pivot_table(index=["曜日", "店舗名"], columns="時間帯", values="客数")
-        .fillna(0)
-        .astype(int)
-    )
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
+            monthly.to_excel(writer, index=False, sheet_name="月次_店舗別")
+            hourly.to_excel(writer, index=False, sheet_name="月次_時間帯別")
+            product_pivot.to_excel(writer, sheet_name="月次_商品別")
+            ranking.to_excel(writer, index=True, sheet_name="商品ランキング")
+            weekday_pivot.to_excel(writer, sheet_name="曜日別_販売数")
+            weekday_store_time.to_excel(writer, sheet_name="曜日別_時間帯別_店舗別")
 
-    daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
-    monthly.to_excel(writer, index=False, sheet_name="月次_店舗別")
-    hourly.to_excel(writer, index=False, sheet_name="月次_時間帯別")
-    product_pivot.to_excel(writer, sheet_name="月次_商品別")
-    ranking.to_excel(writer, index=True, sheet_name="商品ランキング")
-    weekday_pivot.to_excel(writer, sheet_name="曜日別_販売数")
-    weekday_store_time.to_excel(writer, sheet_name="曜日別_時間帯別_店舗別")
-    output.seek(0)
-    st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        output.seek(0)
+        st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    output.seek(0)
-    st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # --- タブで曜日・時間帯別ヒートマップ ---
+    df_time = receipt_summary.copy()
+    df_time["販売時"] = df_time["販売時"].astype(int)
+    df_time["日時"] = pd.to_datetime(df_time["年月"].str.replace("年", "-").str.replace("月", "-01 ") + df_time["販売時"].astype(str) + ":00", errors="coerce")
+    df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
+    df_time["時間帯"] = df_time["日時"].dt.hour
 
     weekday_tables = {}
     for weekday in df_time["曜日"].unique():
