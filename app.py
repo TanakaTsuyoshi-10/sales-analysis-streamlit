@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -51,7 +52,7 @@ if uploaded_file:
     ).reset_index()
     receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"]
 
-    # df_time を定義（曜日・時間帯を抽出するため）
+    # df_time を定義
     df_time = receipt_summary.copy()
     df_time["販売時"] = df_time["販売時"].astype(int)
     df_time["日時"] = pd.to_datetime(
@@ -61,112 +62,22 @@ if uploaded_file:
     df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
     df_time["時間帯"] = df_time["日時"].dt.hour
 
-    def summarize(data, group_keys):
-        summary = data.groupby(group_keys).agg(
-            売上高=("売上金額", "sum"),
-            客数=("客数", "sum"),
-            販売個数=("販売個数", "sum")
-        ).reset_index()
-        summary["1人あたり単価"] = summary["売上高"] / summary["客数"]
-        return summary
+    # --- 曜日・時間帯・店舗別 来店客数の分析 ---
+    weekday_tables = {}
+    for weekday in df_time["曜日"].unique():
+        temp_df = df_time[df_time["曜日"] == weekday]
+        pivot = temp_df.groupby(["店舗名", "時間帯"])["客数"].sum().unstack().fillna(0)
+        weekday_tables[weekday] = pivot
 
-    if st.button("📦 Excel集計"):
-        daily = summarize(receipt_summary, ["販売日", "店舗名"])
-        daily["販売日"] = daily["販売日"].dt.strftime("%Y/%-m/%-d")
+    st.title("📊 曜日別・時間帯別 来店客数（店舗別）")
 
-        monthly = summarize(receipt_summary, ["年月", "店舗名"])
-        hourly = summarize(receipt_summary, ["年月", "販売時", "店舗名"])
+    tabs = st.tabs(list(weekday_tables.keys()))
+    for i, weekday in enumerate(weekday_tables.keys()):
+        with tabs[i]:
+            st.subheader(f"{weekday}曜日 - 店舗別・時間帯別 来店客数")
+            st.dataframe(weekday_tables[weekday].style.format("{:.0f}"))
 
-        product_summary = df.groupby(["店舗名", "商品名"]).agg(販売個数=("数量", "sum")).reset_index()
-        product_pivot = product_summary.pivot(index="店舗名", columns="商品名", values="販売個数").fillna(0)
-
-        ranking = df.groupby("商品名").agg(
-            販売個数=("数量", "sum"),
-            売上金額=("小計", "sum")
-        ).sort_values("売上金額", ascending=False).head(10)
-
-        weekday_summary = df.groupby(["店舗名", "曜日名"]).agg(
-            販売個数=("数量", "sum"),
-            売上金額=("小計", "sum")
-        ).reset_index()
-        weekday_pivot = weekday_summary.pivot(index="店舗名", columns="曜日名").fillna(0)
-        weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
-
-        def create_chart(buf, draw_func):
-            plt.figure(figsize=(10, 6))
-            draw_func()
-            plt.tight_layout()
-            plt.savefig(buf, format="png")
-            plt.close()
-            buf.seek(0)
-
-        heatmap_buf = BytesIO()
-        pivot_heatmap = hourly.pivot_table(index="店舗名", columns="販売時", values="客数", aggfunc="sum")
-        if not pivot_heatmap.empty:
-            create_chart(heatmap_buf, lambda: sns.heatmap(pivot_heatmap.fillna(0), annot=True, fmt=".0f", cmap="YlGnBu"))
-
-        linechart_buf = BytesIO()
-        def draw_lines():
-            for store in hourly["店舗名"].unique():
-                tmp = hourly[hourly["店舗名"] == store]
-                line = tmp.groupby("販売時")["客数"].sum().sort_index()
-                plt.plot(line.index, line.values, label=store)
-            plt.title("時間帯別 客数推移（店舗別）")
-            plt.xlabel("時間帯")
-            plt.ylabel("客数")
-            plt.legend(fontsize=8)
-        create_chart(linechart_buf, draw_lines)
-
-        ranking_buf = BytesIO()
-        create_chart(ranking_buf, lambda: sns.barplot(data=ranking.reset_index(), x="売上金額", y="商品名", palette="Blues_d"))
-
-        weekday_buf = BytesIO()
-        create_chart(weekday_buf, lambda: sns.heatmap(df.pivot_table(index="店舗名", columns="曜日名", values="数量", aggfunc="sum")[weekday_jp].fillna(0), annot=True, fmt=".0f", cmap="OrRd"))
-
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
-            monthly.to_excel(writer, index=False, sheet_name="月次_店舗別")
-            hourly.to_excel(writer, index=False, sheet_name="月次_時間帯別")
-            product_pivot.to_excel(writer, sheet_name="月次_商品別")
-            ranking.to_excel(writer, index=True, sheet_name="商品ランキング")
-            weekday_pivot.to_excel(writer, sheet_name="曜日別_販売数")
-
-            workbook = writer.book
-            sheet = workbook.create_sheet("分析指標")
-            if heatmap_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(heatmap_buf), "A1")
-            if linechart_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(linechart_buf), "A30")
-            if ranking_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(ranking_buf), "L1")
-            if weekday_buf.getbuffer().nbytes > 0:
-                sheet.add_image(XLImage(weekday_buf), "L30")
-
-        output.seek(0)
-        st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-# --- 曜日・時間帯・店舗別 来店客数の分析 ---
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-# 曜日・時間帯・店舗別の来店客数を集計
-weekday_tables = {}
-for weekday in df_time["曜日"].unique():
-    temp_df = df_time[df_time["曜日"] == weekday]
-    pivot = temp_df.groupby(["店舗名", "時間帯"])["客数"].sum().unstack().fillna(0)
-    weekday_tables[weekday] = pivot
-
-# Streamlitで曜日ごとにタブ表示
-st.title("📊 曜日別・時間帯別 来店客数（店舗別）")
-
-tabs = st.tabs(list(weekday_tables.keys()))
-for i, weekday in enumerate(weekday_tables.keys()):
-    with tabs[i]:
-        st.subheader(f"{weekday}曜日 - 店舗別・時間帯別 来店客数")
-        st.dataframe(weekday_tables[weekday].style.format("{:.0f}"))
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-        sns.heatmap(weekday_tables[weekday], annot=True, fmt=".0f", cmap="YlOrRd", ax=ax)
-        ax.set_title(f"{weekday}曜日の来店客数（店舗×時間帯）")
-        st.pyplot(fig)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            sns.heatmap(weekday_tables[weekday], annot=True, fmt=".0f", cmap="YlOrRd", ax=ax)
+            ax.set_title(f"{weekday}曜日の来店客数（店舗×時間帯）")
+            st.pyplot(fig)
