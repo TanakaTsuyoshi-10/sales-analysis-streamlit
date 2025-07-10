@@ -10,7 +10,12 @@ import matplotlib
 import calendar
 
 # ✅ フォント設定（汎用的な日本語フォントに変更）
-matplotlib.rcParams['font.family'] = 'Noto Sans CJK JP'
+
+try:
+    matplotlib.rcParams['font.family'] = 'Noto Sans CJK JP'
+except:
+    matplotlib.rcParams['font.family'] = 'sans-serif'
+
 
 st.title("📊 店舗別売上分析アプリ")
 
