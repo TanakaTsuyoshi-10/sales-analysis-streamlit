@@ -49,6 +49,12 @@ if uploaded_file:
     df["曜日"] = df["販売日"].dt.dayofweek
     weekday_jp = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
     df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
+    # df_timeを使って店舗・時間帯・曜日別分析
+    df_time = receipt_summary.copy()
+    df_time["販売時"] = df_time["販売時"].astype(int)
+    df_time["日時"] = pd.to_datetime(df_time["年月"].str.replace("年", "-").str.replace("月", "-01 ") + df_time["販売時"].astype(str) + ":00", errors="coerce")
+    df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
+    df_time["時間帯"] = df_time["日時"].dt.hour
 
     receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
@@ -104,13 +110,6 @@ if uploaded_file:
 
     output.seek(0)
     st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    # df_timeを使って店舗・時間帯・曜日別分析
-    df_time = receipt_summary.copy()
-    df_time["販売時"] = df_time["販売時"].astype(int)
-    df_time["日時"] = pd.to_datetime(df_time["年月"].str.replace("年", "-").str.replace("月", "-01 ") + df_time["販売時"].astype(str) + ":00", errors="coerce")
-    df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
-    df_time["時間帯"] = df_time["日時"].dt.hour
 
     weekday_tables = {}
     for weekday in df_time["曜日"].unique():
