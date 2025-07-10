@@ -135,3 +135,28 @@ if uploaded_file:
 
         output.seek(0)
         st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# --- 曜日・時間帯・店舗別 来店客数の分析 ---
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 曜日・時間帯・店舗別の来店客数を集計
+weekday_tables = {}
+for weekday in df_time["曜日"].unique():
+    temp_df = df_time[df_time["曜日"] == weekday]
+    pivot = temp_df.groupby(["店舗名", "時間帯"])["客数"].sum().unstack().fillna(0)
+    weekday_tables[weekday] = pivot
+
+# Streamlitで曜日ごとにタブ表示
+st.title("📊 曜日別・時間帯別 来店客数（店舗別）")
+
+tabs = st.tabs(list(weekday_tables.keys()))
+for i, weekday in enumerate(weekday_tables.keys()):
+    with tabs[i]:
+        st.subheader(f"{weekday}曜日 - 店舗別・時間帯別 来店客数")
+        st.dataframe(weekday_tables[weekday].style.format("{:.0f}"))
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        sns.heatmap(weekday_tables[weekday], annot=True, fmt=".0f", cmap="YlOrRd", ax=ax)
+        ax.set_title(f"{weekday}曜日の来店客数（店舗×時間帯）")
+        st.pyplot(fig)
