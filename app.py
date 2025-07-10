@@ -76,13 +76,26 @@ if uploaded_file:
         weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
 
         output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        
+    # 曜日×店舗別×時間帯ピボットテーブルを作成
+    weekday_store_time = (
+        df_time.groupby(["曜日", "店舗名", "時間帯"])["客数"]
+        .sum()
+        .reset_index()
+        .pivot_table(index=["曜日", "店舗名"], columns="時間帯", values="客数")
+        .fillna(0)
+        .astype(int)
+    )
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+
             daily.to_excel(writer, index=False, sheet_name="日次_店舗別")
             monthly.to_excel(writer, index=False, sheet_name="月次_店舗別")
             hourly.to_excel(writer, index=False, sheet_name="月次_時間帯別")
             product_pivot.to_excel(writer, sheet_name="月次_商品別")
             ranking.to_excel(writer, index=True, sheet_name="商品ランキング")
             weekday_pivot.to_excel(writer, sheet_name="曜日別_販売数")
+        weekday_store_time.to_excel(writer, sheet_name="曜日別_時間帯別_店舗別")
 
         output.seek(0)
         st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
