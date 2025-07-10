@@ -51,6 +51,16 @@ if uploaded_file:
     ).reset_index()
     receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"]
 
+    # df_time を定義（曜日・時間帯を抽出するため）
+    df_time = receipt_summary.copy()
+    df_time["販売時"] = df_time["販売時"].astype(int)
+    df_time["日時"] = pd.to_datetime(
+        df_time["年月"].str.replace("年", "-").str.replace("月", "-01 ") + df_time["販売時"].astype(str) + ":00",
+        errors="coerce"
+    )
+    df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
+    df_time["時間帯"] = df_time["日時"].dt.hour
+
     def summarize(data, group_keys):
         summary = data.groupby(group_keys).agg(
             売上高=("売上金額", "sum"),
