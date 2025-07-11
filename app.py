@@ -6,10 +6,13 @@ from io import BytesIO
 from openpyxl import load_workbook
 import matplotlib
 import warnings
+from matplotlib import font_manager
 
-# フォント設定（macOS向け）
-matplotlib.rcParams['font.family'] = ['Hiragino Kaku Gothic ProN', 'YuGothic', 'BIZ UDGothic', 'AppleGothic', 'sans-serif']
-warnings.filterwarnings("ignore", category=UserWarning, module='matplotlib.font_manager')
+# 📌 フォント設定：Cloudでも文字化け防止
+font_path = "fonts/ipaexg.ttf"
+font_manager.fontManager.addfont(font_path)
+matplotlib.rcParams["font.family"] = font_manager.FontProperties(fname=font_path).get_name()
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib.font_manager")
 
 st.title("📊 店舗別売上分析アプリ")
 
@@ -24,7 +27,6 @@ if uploaded_file:
         "21": "土井", "22": "空港東", "23": "有田", "24": "春日", "25": "長嶺"
     }
 
-    # 基本整形処理
     df["販売日"] = df["販売日時"].str.extract(r"(\d{4}年\d{2}月\d{2}日)")
     df["販売時刻"] = df["販売日時"].str.extract(r"(\d{2}:\d{2})")
     df["販売時"] = df["販売時刻"].str[:2]
@@ -37,11 +39,11 @@ if uploaded_file:
     df["年月"] = df["販売日"].str.extract(r"(\d{4}年\d{2}月)")
     df["販売日"] = pd.to_datetime(df["販売日"].str.replace("年", "-").str.replace("月", "-").str.replace("日", ""), errors="coerce")
     df = df[df["販売日"].notnull()]
-    df["曜日"] = df["販売日"].dt.dayofweek
-    weekday_jp = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
-    df["曜日名"] = df["曜日"].apply(lambda x: weekday_jp[x])
+    df["販売時"] = pd.to_numeric(df["販売時"], errors="coerce")
+    df["日時"] = pd.to_datetime(df["販売日"].astype(str) + " " + df["販売時"].astype(str) + ":00", errors="coerce")
+    df["曜日"] = df["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
+    df["時間帯"] = df["日時"].dt.hour
 
-    # レシート単位集計
     receipt_summary = df.groupby(["販売日", "年月", "販売時", "店舗名", "レシート番号"]).agg(
         客数=("レシート番号", "nunique"),
         販売個数=("数量", "sum"),
@@ -49,7 +51,6 @@ if uploaded_file:
     ).reset_index()
     receipt_summary["平均単価"] = receipt_summary["売上金額"] / receipt_summary["販売個数"]
 
-    # 要約関数
     def summarize(data, group_keys):
         summary = data.groupby(group_keys).agg(
             売上高=("売上金額", "sum"),
@@ -59,14 +60,6 @@ if uploaded_file:
         summary["1人あたり単価"] = summary["売上高"] / summary["客数"]
         return summary
 
-    # df_time：曜日・時間帯分析用データ
-    df_time = receipt_summary.copy()
-    df_time["販売時"] = df_time["販売時"].astype(int)
-    df_time["日時"] = pd.to_datetime(df_time["販売日"].astype(str) + " " + df_time["販売時"].astype(str) + ":00", errors="coerce")
-    df_time["曜日"] = df_time["日時"].dt.dayofweek.map({0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"})
-    df_time["時間帯"] = df_time["日時"].dt.hour
-
-    # 📦 Excel出力処理
     if st.button("📦 Excel集計"):
         daily = summarize(receipt_summary, ["販売日", "店舗名"])
         daily["販売日"] = pd.to_datetime(daily["販売日"]).dt.strftime("%Y/%-m/%-d")
@@ -75,14 +68,13 @@ if uploaded_file:
         product_summary = df.groupby(["店舗名", "商品名"]).agg(販売個数=("数量", "sum")).reset_index()
         product_pivot = product_summary.pivot(index="店舗名", columns="商品名", values="販売個数").fillna(0)
         ranking = df.groupby("商品名").agg(販売個数=("数量", "sum"), 売上金額=("小計", "sum")).sort_values("売上金額", ascending=False).head(10)
-        weekday_summary = df.groupby(["店舗名", "曜日名"]).agg(販売個数=("数量", "sum"), 売上金額=("小計", "sum")).reset_index()
-        weekday_pivot = weekday_summary.pivot(index="店舗名", columns="曜日名").fillna(0)
-        weekday_pivot = weekday_pivot[[col for day in weekday_jp for col in weekday_pivot.columns if col[1] == day]]
+        weekday_summary = df.groupby(["店舗名", "曜日"]).agg(販売個数=("数量", "sum"), 売上金額=("小計", "sum")).reset_index()
+        weekday_pivot = weekday_summary.pivot(index="店舗名", columns="曜日").fillna(0)
 
         weekday_store_time = (
-            df_time.groupby(["曜日", "店舗名", "時間帯"])["客数"]
-            .sum().reset_index()
-            .pivot_table(index=["曜日", "店舗名"], columns="時間帯", values="客数")
+            df.groupby(["曜日", "店舗名", "時間帯"])["レシート番号"]
+            .nunique().reset_index()
+            .pivot_table(index=["曜日", "店舗名"], columns="時間帯", values="レシート番号")
             .fillna(0).astype(int)
         )
 
@@ -98,15 +90,15 @@ if uploaded_file:
         output.seek(0)
         st.download_button("⬇️ 分析レポートをダウンロード", data=output.getvalue(), file_name="売上分析レポート.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # 📊 Streamlit 表示用：曜日別・時間帯別テーブルとヒートマップ
+    # 表示処理：曜日×店舗×時間帯ヒートマップ
     weekday_labels = ["月", "火", "水", "木", "金", "土", "日"]
     weekday_tables = {}
     for weekday in weekday_labels:
-        temp_df = df_time[df_time["曜日"] == weekday]
+        temp_df = df[df["曜日"] == weekday]
         if not temp_df.empty:
-            pivot = temp_df.groupby(["店舗名", "時間帯"])["客数"].sum().unstack().fillna(0)
+            pivot = temp_df.groupby(["店舗名", "時間帯"])["レシート番号"].nunique().unstack().fillna(0)
         else:
-            pivot = pd.DataFrame(columns=list(range(0, 24)), index=sorted(df_time["店舗名"].unique())).fillna(0)
+            pivot = pd.DataFrame(columns=list(range(0, 24)), index=sorted(df["店舗名"].unique())).fillna(0)
         weekday_tables[weekday] = pivot
 
     st.title("📊 曜日別・時間帯別 来店客数（店舗別）")
